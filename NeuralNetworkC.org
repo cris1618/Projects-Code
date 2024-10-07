@@ -1,0 +1,391 @@
+#+TITLE: Neural Network in C
+#+AUTHOR: Cristian Del Gobbo (pledged)
+#+STARTUP: overview hideblocks indent
+#+PROPERTY: header-args:C :main yes :includes <stdio.h> :results output
+
+#+LATEX_HEADER: \usepackage{float}
+#+CAPTION: "Dynamism of a Car" by Luigi Russolo (1913).
+#+ATTR_LATEX: :float nil :placement [H] :width 0.4\textwidth
+[[./Images/dynamism-of-a-car-luigi-russolo.jpg]]
+
+* Credits: 
+Credits for the NN written in C go to Nicolai Nielsen, as I followed his YouTube
+video titled 'Coding a Neural Network from Scratch in C: No Libraries
+Required.'
+ 
+* Code Implementation
+In this notebook, I want to compare a simple Neural Network written in =C= 
+with a more "traditional" Neural Network implemented in =Python= using 
+the =PyTorch= framework.
+
+Both networks are designed to learn and predict the output of the =XOR= 
+operation. The =XOR= function returns =true= (1) when exactly one of the 
+two inputs is =true= and the other is =false=. It returns =false= (0) when 
+both inputs are either =true= or both are =false=.
+
+The Neural Network consists of two =input= nodes, three =hidden layers= 
+with 2 =nodes= each, and one binary =output= (1 or 0). Initially, the network 
+had only one =hidden layer=, but as an exercise, I added two additional =hidden layers=.
+
+The code is somewhat repetitive, especially in the forward and backward passes. 
+This suggests that it could be optimized by creating a potential =C= library with 
+reusable functions to handle these common tasks, similar to how frameworks like =PyTorch= 
+abstract these processes.
+
+#+LATEX_HEADER: \usepackage{float}
+#+CAPTION: "The Creation of Adam" by Michelangelo (1512).
+#+ATTR_LATEX: :float nil :placement [H] :width 0.4\textwidth
+[[./Images/Michelangelo_-_Creation_of_Adam_(cropped).jpg]]
+
+
+** Neural Network in C
+#+begin_src C :cmdline -lm :tangle nn.c :main no 
+  /*******************************************************/
+  // nn.c: Create a basic NN that can learn XOR in C. 
+  // (C) Cristian Del Gobbo Licence: GPLv3. 
+  // Credits: Nicolai Nielsen
+  /*******************************************************/
+  #include <stdlib.h>
+  #include <math.h>
+  #include <time.h>
+  #define NUM_INPUT 2
+  #define NUM_HIDDEN_1 2
+  #define NUM_HIDDEN_2 2
+  #define NUM_HIDDEN_3 2
+  #define NUM_OUTPUT 1
+  #define NUM_TRAINING_SETS 4
+
+  // Name: sigmoid
+  // Purpose: Recreate the sigmoid function for logistic regression
+  // Return: Double
+  // Parameter: Double
+  double sigmoid(double x);
+
+  // Name: DSigmoid
+  // Purpose: Take the derivative of the Sigmoid function
+  // Return: Double
+  // Parameter: Double
+  double DSigmoid(double x);
+
+  // Name: init_weights
+  // Purpose: Initialize random weights.
+  // Return: Double
+  // Parameter: Nothing
+  double init_weights();
+
+
+  // Name: shuffle 
+  // Purpose: Shuffle elements of an array.
+  // Return:Nothing
+  // Parameters: pointer to int array, size of the array
+  void shuflle(int* array, size_t n);
+
+
+  // main function
+  int main(){
+    // Start timer
+    clock_t start, end;
+    start = clock();
+
+    // Learning rate
+    const double lr = 0.1f;
+
+    // Define Layers, Bias, and weights 
+    double hidden_layer_1[NUM_HIDDEN_1];
+    double hidden_layer_2[NUM_HIDDEN_2];
+    double hidden_layer_3[NUM_HIDDEN_3];
+    double output_layer[NUM_OUTPUT];
+
+    double hidden_layer_bias_1[NUM_HIDDEN_1];
+    double hidden_layer_bias_2[NUM_HIDDEN_2];
+    double hidden_layer_bias_3[NUM_HIDDEN_3];
+    double output_layer_bias[NUM_OUTPUT];
+
+    double hidden_weights_input_hidden_1[NUM_INPUT][NUM_HIDDEN_1];
+    double hidden_weights_hidden_1_to_2[NUM_HIDDEN_1][NUM_HIDDEN_2];
+    double hidden_weights_hidden_2_to_3[NUM_HIDDEN_2][NUM_HIDDEN_3];
+    double output_weights[NUM_HIDDEN_3][NUM_OUTPUT];
+
+    // Define training data
+    double training_inputs[NUM_TRAINING_SETS][NUM_INPUT] = {{0.0f, 0.0f}, 
+                                                            {1.0f, 0.0f}, 
+                                                            {0.0f, 1.0f}, 
+                                                            {1.0f, 1.0f}};
+
+    double training_outputs[NUM_TRAINING_SETS][NUM_OUTPUT] = {{0.0f}, 
+                                                              {1.0f}, 
+                                                              {1.0f}, 
+                                                              {0.0f}};
+    // Forward pass
+    // Input to Hidden layer
+    for(int i = 0; i < NUM_INPUT; i++){
+      for(int j = 0; j < NUM_HIDDEN_1; j++){
+        hidden_weights_input_hidden_1[i][j] = init_weights();
+      }
+    }
+
+    for(int i = 0; i < NUM_HIDDEN_1; i++){
+      for(int j = 0; j < NUM_HIDDEN_2; j++){
+        hidden_weights_hidden_1_to_2[i][j] = init_weights();
+      }
+    }
+
+    for(int i = 0; i < NUM_HIDDEN_2; i++){
+      for(int j = 0; j < NUM_HIDDEN_3; j++){
+        hidden_weights_hidden_2_to_3[i][j] = init_weights();
+      }
+    }
+
+
+    // Hidden to Output layer
+    for(int i = 0; i < NUM_HIDDEN_3; i++){
+      for(int j = 0; j < NUM_OUTPUT; j++){
+        output_weights[i][j] = init_weights();
+      }
+    }
+
+    // Initialize Biases
+    for(int i = 0; i<NUM_OUTPUT; i++){
+      output_layer_bias[i] = init_weights();
+    }
+
+
+    // Shuffle Training set order
+    int training_set_order[] = {0, 1, 2, 3};
+
+    // Number of Epochs to train the model
+    int number_of_epochs = 1000;
+
+    // Train the neural network for n number of epochs
+    for(int epoch = 0; epoch<number_of_epochs; epoch++){
+      shuflle(training_set_order, NUM_TRAINING_SETS);
+      for(int x = 0; x<NUM_TRAINING_SETS; x++){
+        int i = training_set_order[x];
+
+        // Forward pass
+        // Compute Hidden Layer activation
+        for(int j = 0; j < NUM_HIDDEN_1; j++){
+          double activation = hidden_layer_bias_1[j];
+          for(int k = 0; k < NUM_INPUT; k++){
+            activation += training_inputs[i][k] * hidden_weights_input_hidden_1[k][j];
+          }
+          hidden_layer_1[j] = sigmoid(activation);
+        }
+
+        for(int j = 0; j < NUM_HIDDEN_2; j++){
+          double activation = hidden_layer_bias_1[j];
+          for(int k = 0; k < NUM_HIDDEN_1; k++){
+            activation += training_inputs[i][k] * hidden_weights_hidden_1_to_2[k][j];
+          }
+          hidden_layer_2[j] = sigmoid(activation);
+        }
+
+        for(int j = 0; j < NUM_HIDDEN_3; j++){
+          double activation = hidden_layer_bias_1[j];
+          for(int k = 0; k < NUM_HIDDEN_2; k++){
+            activation += training_inputs[i][k] * hidden_weights_hidden_2_to_3[k][j];
+          }
+          hidden_layer_3[j] = sigmoid(activation);
+        }
+
+
+        // Compute Output Layer activation
+        for(int j = 0; j < NUM_OUTPUT; j++){
+          double activation = output_layer_bias[j];
+          for(int k = 0; k < NUM_HIDDEN_3; k++){
+            activation += hidden_layer_3[k] * output_weights[k][j];
+          }
+          output_layer[j] = sigmoid(activation);
+        }
+
+
+        // Backpropagation
+        // Compute change in output weights
+        double delta_output[NUM_OUTPUT];
+
+        for(int j = 0; j<NUM_OUTPUT; j++){
+          double error = (training_outputs[i][j] - output_layer[j]);
+          delta_output[j] = error * DSigmoid(output_layer[j]);
+        }
+
+        // Compute change in hidden weights
+        double delta_hidden_3[NUM_HIDDEN_3];
+        for(int j = 0; j<NUM_HIDDEN_3; j++){
+          double error = 0.0f;
+          for(int k = 0; k<NUM_OUTPUT; k++){
+            error += delta_output[k] * output_weights[j][k];
+          }
+          delta_hidden_3[j] = error * DSigmoid(hidden_layer_3[j]);
+        }
+
+        double delta_hidden_2[NUM_HIDDEN_2];
+        for(int j = 0; j<NUM_HIDDEN_2; j++){
+          double error = 0.0f;
+          for(int k = 0; k<NUM_HIDDEN_3; k++){
+            error += delta_hidden_3[k] * hidden_weights_hidden_2_to_3[j][k];
+          }
+          delta_hidden_2[j] = error * DSigmoid(hidden_layer_2[j]);
+        }
+
+        double delta_hidden_1[NUM_HIDDEN_1];
+        for(int j = 0; j<NUM_HIDDEN_1; j++){
+          double error = 0.0f;
+          for(int k = 0; k<NUM_HIDDEN_2; k++){
+            error += delta_hidden_1[k] * hidden_weights_hidden_1_to_2[j][k];
+          }
+          delta_hidden_1[j] = error * DSigmoid(hidden_layer_1[j]);
+        }
+
+
+        // Apply changes in output weights
+        for(int j = 0; j<NUM_OUTPUT; j++){
+          output_layer_bias[j] += delta_output[j] * lr;
+          for(int k = 0; k<NUM_HIDDEN_3; k++){
+            output_weights[k][j] += hidden_layer_3[k] * delta_output[j] * lr;
+          }
+        }
+
+        for(int j = 0; j<NUM_HIDDEN_3; j++){
+          hidden_layer_bias_3[j] += delta_hidden_3[j] * lr;
+          for(int k = 0; k<NUM_HIDDEN_2; k++){
+            hidden_weights_hidden_2_to_3[k][j] += hidden_layer_2[k] * delta_hidden_3[j] * lr;
+          }
+        }
+
+        for(int j = 0; j<NUM_HIDDEN_2; j++){
+          hidden_layer_bias_2[j] += delta_hidden_2[j] * lr;
+          for(int k = 0; k<NUM_HIDDEN_1; k++){
+            hidden_weights_hidden_1_to_2[k][j] += hidden_layer_1[k] * delta_hidden_2[j] * lr;
+          }
+        }
+
+        // Apply changes in hidden weights
+        for(int j = 0; j<NUM_HIDDEN_1; j++){
+          hidden_layer_bias_1[j] += delta_hidden_1[j] * lr;
+          for(int k = 0; k<NUM_INPUT; k++){
+            hidden_weights_input_hidden_1[k][j] += training_inputs[i][k] * delta_hidden_1[j] * lr;
+          }
+        }
+        printf("Epoch: %d Input: %g %g  Output: %g  Expected Output: %g \n", 
+               epoch, training_inputs[i][0], training_inputs[i][1], 
+               output_layer[0], training_outputs[i][0]);
+      }
+
+    }
+
+    end = clock();
+    double time_spent = ((double)(end-start)/CLOCKS_PER_SEC);
+
+    printf("\nTime taken to run the NN in C: %f seconds\n", time_spent);
+    return 0;
+  }
+
+  // Function declarations
+  double sigmoid(double x){
+    return 1 / (1 + exp(-x));
+  }
+
+  double DSigmoid(double x){
+    return x * (1-x);
+  }
+
+  double init_weights(){
+    return ((double)rand()) / ((double)RAND_MAX);
+  }
+
+  void shuflle(int* array, size_t n){
+    if(n>1){
+      size_t i;
+      for(i=0; i<n-1; i++){
+        size_t j = i + rand() / (RAND_MAX / (n-i) + 1);
+        int t = array[j];
+        array[j] = array[i];
+        array[i] = t;
+      }
+    }
+  }
+#+end_src
+
+#+RESULTS:
+
+** Neural Network in Python (PyTorch)
+#+begin_src python :results output :tangle nn.py
+  import time
+  import torch
+  import torch.nn as nn
+  import torch.optim as optim
+
+  # Simple NN with PyTorch
+  class SimpleNN(nn.Module):
+      def __init__(self):
+          super(SimpleNN, self).__init__()
+          self.hidden_1 = nn.Linear(2, 2)
+          self.hidden_2 = nn.Linear(2, 2)
+          self.hidden_3 = nn.Linear(2, 2)
+          self.output = nn.Linear(2, 1)
+          self.sigmoid = nn.Sigmoid()
+
+      def forward(self, x):
+          x = self.sigmoid(self.hidden_1(x))
+          x = self.sigmoid(self.hidden_2(x))
+          x = self.sigmoid(self.hidden_3(x))
+          x = self.sigmoid(self.output(x))
+          return x
+
+  # Define the model
+  model = SimpleNN()
+  criterion = nn.MSELoss()
+  optimizer = optim.SGD(model.parameters(), lr=0.1)
+
+  # Training data
+  inputs = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+  targets = torch.tensor([[0.0], [1.0], [1.0], [0.0]])
+
+  # Measure the execution time
+  start_time = time.time()
+
+  # Training the network
+  epochs = 1000
+  for epoch in range(epochs):
+      for i in range(inputs.size(0)):
+          optimizer.zero_grad()
+          y_pred = model(inputs[i].unsqueeze(0))
+          loss = criterion(y_pred, targets[i].unsqueeze(0))
+          loss.backward()
+          optimizer.step()
+          print(f"Epoch: {epoch},  Input: {inputs[i]}, Output: {y_pred.item()},  Expected Output: {targets[i].item()}")
+
+  # End time
+  end_time = time.time()
+
+  print(f"\nTime taken to run the NN in Python: {end_time - start_time} seconds")
+
+#+end_src
+
+#+RESULTS:
+
+* Expected Results
+Not surprisingly, =C= is significantly faster than =Python= when comparing the runtime 
+for the neural network implementations above. Below is a screenshot of the outputs 
+from the =C= and =Python= code, both executed with 1000 epochs:
+
+#+LATEX_HEADER: \usepackage{float}
+#+CAPTION: Final Comparison.
+#+ATTR_LATEX: :float nil :placement [H] :width 0.4\textwidth
+[[./Images/C_vs_Py_1.png]]
+
+However, I want to highlight a few key points:
+
+- Implementing the neural network in =PyTorch= is much easier due to the high level 
+  of abstraction provided by the framework.
+
+- Writing the neural network code in =C= gives a deeper understanding of each step of 
+  the process, making it a valuable learning experience. I would recommend this approach 
+  for beginners to fully grasp the underlying mechanics.
+
+- It was a fun exercise.
+
+
+"il naufragar m'è dolce in questo mare"
+67 114 105 115 116 105 97 110
+
